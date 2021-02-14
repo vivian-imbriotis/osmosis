@@ -1,0 +1,311 @@
+//Backend for osmosis simulation in python
+#include <stdio.h>
+#include <stdlib.h>
+#include <Python.h>
+#include <math.h>
+#define SOLUTE_MASS 1
+#define WATER_MASS 1
+#define PARTICLE_RADIUS 0.025
+
+//Conducts an elastic collision along a single dimention between bodies with
+//masses m1 and m2 and initial velocities u1 and u2 respectively
+double* collision_1d(double u1, double u2, double m1, double m2){
+    double v1, v2;
+    v1 = (m1-m2)/(m1+m2)*u1 + (2*m2)/(m1+m2)*u2;
+    v2 = 2*m1/(m1+m2)*u1 + (m2-m1)/(m1+m2)*u2;
+    double* result = malloc(2*sizeof(double));
+    result[0] = v1;
+    result[1] = v2;
+    return result;
+    }
+
+//Get a random number in the interval (-1,1)
+double rand_double(void){
+    return ((double)(rand())/RAND_MAX)*2 - 1;
+}
+
+//Basic 2-vector
+typedef struct{
+    double x;
+    double y;
+} vector;
+
+
+//Scalar product
+vector s_prod(double scalar, vector v){
+    vector result;
+    result.x = scalar * v.x;
+    result.y = scalar * v.y;
+    return result;
+}
+
+//Vector addition
+vector v_add(vector v1, vector v2){
+    vector result;
+    result.x = v1.x + v2.x;
+    result.y = v1.y + v2.y;
+    return result;
+}
+
+//The usual vector dot product
+double dot(vector v1, vector v2){
+    return v1.x*v2.x + v1.y+v2.x;
+}
+
+//Magnitude of a vector
+double modulus(vector v1){
+  return sqrt(v1.x*v1.x + v1.y*v1.y);
+}
+
+
+//Return a normalized (magnitude = 1) form of vector
+vector normalized(vector v1){
+    vector result;
+    double mod = modulus(v1);
+    result.x = v1.x/mod;
+    result.y = v1.y/mod;
+    return result;
+}
+
+//Get a unit vector pointing in a random direction
+vector rand_unit_vector(void){
+    vector result;
+    result.x = rand_double();
+    result.y = rand_double();
+    return normalized(result);
+}
+
+//Particles have a position and a velocity, and are either water or solute
+typedef struct {
+    int is_water;
+    float mass;
+    vector vel;
+    vector pos;
+} particle;
+
+//Constructor for a particle
+particle* construct_particle(temperature,is_water){
+    particle* p = malloc(sizeof(particle));
+    p->is_water = is_water;
+    if(p->is_water){
+        p->pos.x = rand_double();
+        p->mass=WATER_MASS;
+    }else{
+        p->pos.x = rand_double()*0.5;
+        p->mass=SOLUTE_MASS;
+    }
+    p->pos.y = rand_double();
+    p->vel = rand_unit_vector();
+    return p;
+}
+
+//Get the normal or tangent vector between two particles
+vector get_normal(particle particle1, particle particle2){
+    vector result;
+    result.x = particle2.pos.x - particle1.pos.x;
+    result.y = particle2.pos.y - particle1.pos.x;
+    return normalized(result);
+}
+
+vector get_tangent(particle particle1, particle particle2){
+    vector result;
+    result.y = particle1.pos.x - particle2.pos.x;
+    result.x = particle2.pos.y - particle1.pos.x;
+    return normalized(result);
+}
+
+double get_distance(particle particle1, particle particle2){
+    vector result;
+    result.x = particle2.pos.x - particle1.pos.x;
+    result.y = particle2.pos.y - particle1.pos.x;
+    return modulus(result);
+}
+
+//Extends collision to 2d particles
+void do_collision(particle particle1, particle particle2){
+    if(get_distance(particle1, particle2) > (2*PARTICLE_RADIUS)){
+        return;
+    }
+    vector norm_unit = get_normal(particle1, particle2);
+    vector tan_unit  = get_tangent(particle1, particle2);
+    
+    //Collision only happens along the normal axis
+    double u1_n = dot(particle1.vel,norm_unit);
+    double u2_n = dot(particle2.vel,norm_unit);
+    
+    //Reserve the tangent component of the velocities
+    vector u1_t = s_prod(dot(particle1.vel,tan_unit), tan_unit);
+    vector u2_t = s_prod(dot(particle2.vel,tan_unit), tan_unit);
+    
+    //Array of 2 new normal velocities
+    double* v = collision_1d(u1_n, u2_n, particle1.mass, particle2.mass);
+    
+    //Update particle velocities and clean up
+    particle1.vel = v_add(s_prod(v[0],norm_unit),u1_t);
+    particle2.vel = v_add(s_prod(v[0],norm_unit),u2_t);
+    free(v);
+}
+
+
+//Implementation of a basic linked list
+struct node {
+    particle data;
+    struct node* next;
+};
+
+struct node* construct_node(particle data){
+    struct node* new_node = malloc(sizeof(struct node));
+    new_node->next = NULL;
+    new_node->data = data;
+    return new_node;
+}
+
+void append(struct node* list, particle data){
+    while(list!=NULL){
+        list = list->next;
+    }
+    list->next = construct_node(data);
+}
+
+//Restrict particles to a bounding box
+void bounce_particle_off_walls(particle p){
+    return;
+}
+//Perform all pairwise collisions amoung particles in a linked list
+void do_all_collisions(struct node* list){
+    while(list!=NULL){
+        struct node* cursor = list->next;
+        while(cursor!=NULL){
+            do_collision(list->data,cursor->data);
+            cursor = cursor->next;
+        }
+        (list->data);
+        list = list->next;
+    }
+}
+
+
+
+
+
+struct node* construct_list_of_particles(int n_particles, 
+                                         float temperature, 
+                                         int n_water){
+    struct node* head;
+    struct node* cursor;
+    int i;
+    for(i=0;i<n_particles;i++){
+        particle* p = construct_particle(temperature, i<n_water);
+        struct node* new_node = construct_node(*p);
+        free(p);
+        if(i==0){head = cursor = new_node;}
+        else{
+            cursor->next = new_node;
+            cursor = new_node;
+        }
+    }
+    return head;
+}
+
+
+
+
+
+//----------------
+//Python interface
+//----------------
+static PyObject* py_collision_1d(PyObject* self, PyObject* args){
+    double u1,u2,m1,m2;
+    if(!PyArg_ParseTuple(args,"dddd",&u1,&u2,&m1,&m2)){
+        return NULL;
+    }
+    double* result = collision_1d(u1,u2,m1,m2);
+    PyObject* return_value = Py_BuildValue("(dd)",result,result+1);
+    free(result);
+    return return_value;
+    }
+
+static PyObject* py_construct_state(PyObject* self, PyObject* args){
+    int n_particles, n_water;
+    float temperature;
+    if(!PyArg_ParseTuple(args,"iid",&n_particles,&n_water,&temperature)){
+        return NULL;
+    }
+    struct node *list = construct_list_of_particles(n_particles,temperature,n_water);
+    PyObject* capsule = PyCapsule_New(list,"particle_state", NULL);
+    Py_INCREF(capsule);
+    return capsule;
+}
+
+static PyObject* py_update_state(PyObject* self, PyObject* args){
+    PyObject* capsule;
+    struct node* list;
+    if (!PyArg_ParseTuple(args, "O", &capsule)) {
+        return NULL;
+    }
+    list = PyCapsule_GetPointer(capsule,"particle_state");
+    do_all_collisions(list);
+    Py_RETURN_NONE;
+}
+
+static PyObject* py_get_pos_from_state(PyObject* self, PyObject* args){
+    PyObject* capsule;
+    struct node* list;
+    int len;
+    if (!PyArg_ParseTuple(args, "O", &capsule)) {
+        return NULL;
+    }
+    list = PyCapsule_GetPointer(capsule,"particle_state");
+    PyObject* pylist = PyList_New(0);
+    while(list!=NULL){
+        PyObject* X = PyFloat_FromDouble(list->data.pos.x);
+        PyObject* Y = PyFloat_FromDouble(list->data.pos.y);
+        PyList_Append(pylist,X);
+        PyList_Append(pylist,Y);
+        list = list->next;
+    }
+    Py_INCREF(pylist);
+    return pylist;
+}
+
+
+
+static PyMethodDef osmosisbackend_methods[] = {
+    {   
+	"collision_1d", py_collision_1d, METH_VARARGS,
+	"params u1 u2 m1 m2\n"
+	":returns 2-tuple of int:"
+    },
+    {   
+	"construct_state", py_construct_state, METH_VARARGS,
+	"params u1 u2 m1 m2\n"
+	":returns 2-tuple of int:"
+    },
+    {   
+	"update_state", py_update_state, METH_VARARGS,
+	"params u1 u2 m1 m2\n"
+	":returns 2-tuple of int:"
+    },
+    {   
+	"get_pos_from_state", py_get_pos_from_state, METH_VARARGS,
+	"params u1 u2 m1 m2\n"
+	":returns 2-tuple of int:"
+    },
+    {NULL, NULL, 0, NULL}
+};
+
+static struct PyModuleDef osmosisbackend_definition = { 
+    PyModuleDef_HEAD_INIT,
+    "osmosisbackend",
+    "C Backend for 2d gas and fluid simulations using\n"
+    "basic collision physics.\n",
+    -1, 
+    osmosisbackend_methods
+};
+
+
+
+PyMODINIT_FUNC PyInit_osmosisbackend(void) {
+    Py_Initialize();
+    return PyModule_Create(&osmosisbackend_definition);
+}
